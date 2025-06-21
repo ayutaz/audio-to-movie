@@ -1,0 +1,38 @@
+{
+  "name": "mp3-to-movie",
+  "version": "1.0.0",
+  "description": "Web service to convert MP3 files to videos for YouTube/X using Remix + Hono + Cloudflare",
+  "type": "module",
+  "scripts": {
+    "build": "remix build",
+    "dev": "remix dev --manual",
+    "dev:wrangler": "remix build && wrangler pages dev ./build/client",
+    "start": "wrangler pages dev ./build/client",
+    "serve": "remix-serve build/index.js",
+    "test-server": "node test-server.js",
+    "deploy": "wrangler pages deploy ./build/client",
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "@remix-run/cloudflare": "^2.4.1",
+    "@remix-run/cloudflare-pages": "^2.4.1",
+    "@remix-run/react": "^2.4.1",
+    "express": "^4.21.2",
+    "hono": "^3.12.0",
+    "isbot": "^4.1.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@remix-run/dev": "^2.4.1",
+    "@remix-run/serve": "^2.4.1",
+    "@types/react": "^18.2.45",
+    "@types/react-dom": "^18.2.18",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.8",
+    "wrangler": "^3.22.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
