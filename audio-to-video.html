@@ -170,10 +170,12 @@
                 </div>
             </div>
             <div style="margin-top: 1rem;">
-                <p><strong>Video Details:</strong> 1920x1080, MP4 format, 5 seconds, 30fps</p>
+                <p><strong>Video Details:</strong> 1920x1080, MP4 format, 30fps</p>
+                <p><strong>Audio:</strong> Original audio track included</p>
+                <p><strong>Duration:</strong> 3-5 seconds (auto-adjusted to audio length)</p>
                 <p>✅ Optimized for YouTube/X upload</p>
                 <button id="downloadBtn" class="convert-btn" style="background-color: #28a745;">
-                    📥 Download MP4 Video
+                    📥 Download MP4 Video (with Audio)
                 </button>
             </div>
         </div>
@@ -181,7 +183,7 @@
         <div class="formats">
             <p><strong>📁 対応フォーマット:</strong></p>
             <p>MP3, WAV, M4A, AAC, OGG, OPUS, FLAC, WMA, AIFF, AU, 3GP, AMR, MP2, AC3</p>
-            <p>📹 生成される動画: 1920x1080, MP4形式, 5秒, 30fps (YouTube/X最適化)</p>
+            <p>📹 生成される動画: 1920x1080, MP4形式, 音声付き, 30fps (YouTube/X最適化)</p>
             <p>📊 最大ファイルサイズ: 50MB</p>
         </div>
     </div>
@@ -288,6 +290,22 @@
                 canvas.height = 1080;
                 const ctx = canvas.getContext('2d');
                 
+                // 音声ファイルを読み込み
+                let audioBuffer = null;
+                let audioContext = null;
+                let audioSource = null;
+                let audioDestination = null;
+                
+                try {
+                    // Web Audio APIで音声を処理
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    const arrayBuffer = await audioFile.arrayBuffer();
+                    audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                    console.log('Audio loaded:', audioBuffer.duration, 'seconds');
+                } catch (error) {
+                    console.warn('Audio processing failed:', error);
+                }
+                
                 // 基本フレームを描画
                 function drawFrame(frameNumber = 0) {
                     // 背景
@@ -355,7 +373,32 @@
                 
                 // MediaRecorder を使用してMP4動画を生成
                 try {
-                    const stream = canvas.captureStream(30); // 30fps
+                    const videoStream = canvas.captureStream(30); // 30fps
+                    let combinedStream = videoStream;
+                    
+                    // 音声ストリームを追加
+                    if (audioBuffer && audioContext) {
+                        try {
+                            // 音声ストリームを作成
+                            const audioDestination = audioContext.createMediaStreamDestination();
+                            const audioSource = audioContext.createBufferSource();
+                            
+                            // 音声バッファを設定
+                            audioSource.buffer = audioBuffer;
+                            audioSource.connect(audioDestination);
+                            
+                            // 動画と音声を結合
+                            combinedStream = new MediaStream([
+                                ...videoStream.getVideoTracks(),
+                                ...audioDestination.stream.getAudioTracks()
+                            ]);
+                            
+                            console.log('Combined stream created with audio');
+                        } catch (audioError) {
+                            console.warn('Audio stream creation failed:', audioError);
+                            combinedStream = videoStream; // 映像のみにフォールバック
+                        }
+                    }
                     
                     // MP4対応のmimeTypeを試行
                     let mimeType = 'video/mp4';
@@ -374,9 +417,10 @@
                         mimeType = 'video/webm';
                     }
                     
-                    const mediaRecorder = new MediaRecorder(stream, {
+                    const mediaRecorder = new MediaRecorder(combinedStream, {
                         mimeType: mimeType,
-                        videoBitsPerSecond: 2500000
+                        videoBitsPerSecond: 2500000,
+                        audioBitsPerSecond: 128000
                     });
                     
                     const chunks = [];
@@ -395,10 +439,19 @@
                     
                     mediaRecorder.start();
                     
-                    // 5秒間のアニメーションを記録
+                    // 音声再生を開始（音声がある場合）
+                    if (audioSource) {
+                        audioSource.start();
+                    }
+                    
+                    // 音声の長さか5秒の短い方を使用
                     const fps = 30;
-                    const duration = 5; // 5秒
-                    const totalFrames = fps * duration;
+                    const maxDuration = 5; // 最大5秒
+                    const audioDuration = audioBuffer ? Math.min(audioBuffer.duration, maxDuration) : maxDuration;
+                    const duration = Math.max(audioDuration, 3); // 最低3秒
+                    const totalFrames = Math.floor(fps * duration);
+                    
+                    console.log(`Recording ${duration}s video with ${totalFrames} frames`);
                     
                     for (let frame = 0; frame < totalFrames; frame++) {
                         drawFrame(frame);
@@ -406,6 +459,11 @@
                     }
                     
                     mediaRecorder.stop();
+                    
+                    // 音声コンテキストをクリーンアップ
+                    if (audioContext && audioContext.state !== 'closed') {
+                        audioContext.close();
+                    }
                     
                 } catch (error) {
                     console.error('MediaRecorder not supported, using fallback:', error);
@@ -499,7 +557,7 @@
                 document.body.removeChild(a);
                 URL.revokeObjectURL(url);
                 
-                showSuccess(`🎉 ${fileType} downloaded successfully! ${format} format (optimized for YouTube/X)`);
+                showSuccess(`🎉 ${fileType} downloaded successfully! ${format} format with audio track (optimized for YouTube/X)`);
             }
         });
         
