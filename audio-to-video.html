@@ -312,22 +312,10 @@
                     
                     console.log('Audio decoded (silent):', audioDuration, 'seconds');
                     
-                    // サイレント音声ストリームを作成
+                    // 動画録画用の音声ストリームを作成（MediaRecorder用）
                     const destination = audioContext.createMediaStreamDestination();
-                    const bufferSource = audioContext.createBufferSource();
-                    const gainNode = audioContext.createGain();
-                    
-                    // 音声バッファを設定
-                    bufferSource.buffer = audioBuffer;
-                    bufferSource.loop = false;
-                    
-                    // 音声ルーティング（スピーカーには出力しない）
-                    bufferSource.connect(gainNode);
-                    gainNode.connect(destination);
-                    // スピーカー出力なし: bufferSource.connect(audioContext.destination);
-                    
                     audioStream = destination.stream;
-                    console.log('Silent audio stream created:', audioStream.getAudioTracks().length, 'tracks');
+                    console.log('Audio stream created for recording:', audioStream.getAudioTracks().length, 'tracks');
                     
                 } catch (error) {
                     console.warn('Audio processing failed:', error);
@@ -404,25 +392,40 @@
                     const videoStream = canvas.captureStream(30); // 30fps
                     let combinedStream = videoStream;
                     
-                    // 音声ストリームを追加
-                    if (audioStream && audioStream.getAudioTracks().length > 0) {
+                    // 音声ストリームを新しく作成してMediaRecorderに渡す
+                    if (audioBuffer && audioContext) {
                         try {
+                            // 新しい音声ストリームを作成
+                            const audioDestination = audioContext.createMediaStreamDestination();
+                            const recordingBufferSource = audioContext.createBufferSource();
+                            const recordingGainNode = audioContext.createGain();
+                            
+                            recordingBufferSource.buffer = audioBuffer;
+                            recordingBufferSource.connect(recordingGainNode);
+                            recordingGainNode.connect(audioDestination);
+                            // スピーカー出力なし
+                            
                             // 動画と音声を結合
                             combinedStream = new MediaStream([
                                 ...videoStream.getVideoTracks(),
-                                ...audioStream.getAudioTracks()
+                                ...audioDestination.stream.getAudioTracks()
                             ]);
                             
                             console.log('Combined stream created:');
                             console.log('- Video tracks:', videoStream.getVideoTracks().length);
-                            console.log('- Audio tracks:', audioStream.getAudioTracks().length);
+                            console.log('- Audio tracks:', audioDestination.stream.getAudioTracks().length);
                             console.log('- Total tracks:', combinedStream.getTracks().length);
+                            
+                            // 録画開始と同時に音声も開始
+                            recordingBufferSource.start();
+                            console.log('Recording audio started (silent to speakers, captured to video)');
+                            
                         } catch (audioError) {
                             console.warn('Audio stream creation failed:', audioError);
                             combinedStream = videoStream; // 映像のみにフォールバック
                         }
                     } else {
-                        console.warn('No audio stream available, using video only');
+                        console.warn('No audio buffer available, using video only');
                     }
                     
                     // MP4対応のmimeTypeを試行
@@ -463,26 +466,6 @@
                     };
                     
                     mediaRecorder.start();
-                    
-                    // サイレント音声再生を開始（ストリームキャプチャのみ、スピーカー出力なし）
-                    if (audioBuffer && audioContext) {
-                        try {
-                            // BufferSourceを作成してサイレント再生
-                            const bufferSource = audioContext.createBufferSource();
-                            const destination = audioContext.createMediaStreamDestination();
-                            const gainNode = audioContext.createGain();
-                            
-                            bufferSource.buffer = audioBuffer;
-                            bufferSource.connect(gainNode);
-                            gainNode.connect(destination);
-                            // スピーカー出力しない: bufferSource.connect(audioContext.destination);
-                            
-                            bufferSource.start();
-                            console.log('Silent audio started for stream capture (no speaker output)');
-                        } catch (audioError) {
-                            console.warn('Silent audio start failed:', audioError);
-                        }
-                    }
                     
                     // 音声の長さか5秒の短い方を使用
                     const fps = 30;
