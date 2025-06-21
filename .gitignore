@@ -54,3 +54,6 @@ wrangler.toml.bak
 
 # Cache directories
 .cache/
+
+# Claude Code settings
+.claude/
