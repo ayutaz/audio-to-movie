@@ -51,3 +51,6 @@ test-server.js
 # Cloudflare
 wrangler.toml.bak
 .wrangler/
+
+# Cache directories
+.cache/
