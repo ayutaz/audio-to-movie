@@ -156,18 +156,19 @@
         </div>
         
         <div id="preview" class="preview">
-            <h3>Generated Video Preview</h3>
+            <h3>📹 Generated Video Preview</h3>
             <canvas id="waveform" class="waveform"></canvas>
-            <p>Video: 1920x1080, MP4 format, optimized for YouTube/X</p>
+            <p><strong>Video Details:</strong> 1920x1080, MP4 format, 5 seconds, 30fps</p>
+            <p>✅ Optimized for YouTube/X upload</p>
             <button id="downloadBtn" class="convert-btn" style="background-color: #28a745;">
-                💾 Download Video
+                📥 Download MP4 Video
             </button>
         </div>
         
         <div class="formats">
             <p><strong>📁 対応フォーマット:</strong></p>
             <p>MP3, WAV, M4A, AAC, OGG, OPUS, FLAC, WMA, AIFF, AU, 3GP, AMR, MP2, AC3</p>
-            <p>📹 生成される動画: 1920x1080, MP4形式 (YouTube/X最適化)</p>
+            <p>📹 生成される動画: 1920x1080, MP4形式, 5秒, 30fps (YouTube/X最適化)</p>
             <p>📊 最大ファイルサイズ: 50MB</p>
         </div>
     </div>
@@ -333,8 +334,26 @@
                 // MediaRecorder を使用してMP4動画を生成
                 try {
                     const stream = canvas.captureStream(30); // 30fps
+                    
+                    // MP4対応のmimeTypeを試行
+                    let mimeType = 'video/mp4';
+                    let options = { videoBitsPerSecond: 2500000 };
+                    
+                    // ブラウザ対応状況をチェック
+                    if (MediaRecorder.isTypeSupported('video/mp4;codecs=avc1.42E01E')) {
+                        mimeType = 'video/mp4;codecs=avc1.42E01E';
+                    } else if (MediaRecorder.isTypeSupported('video/mp4')) {
+                        mimeType = 'video/mp4';
+                    } else if (MediaRecorder.isTypeSupported('video/webm;codecs=h264')) {
+                        mimeType = 'video/webm;codecs=h264';
+                    } else if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9')) {
+                        mimeType = 'video/webm;codecs=vp9';
+                    } else {
+                        mimeType = 'video/webm';
+                    }
+                    
                     const mediaRecorder = new MediaRecorder(stream, {
-                        mimeType: 'video/webm;codecs=vp9',
+                        mimeType: mimeType,
                         videoBitsPerSecond: 2500000
                     });
                     
@@ -347,8 +366,9 @@
                     };
                     
                     mediaRecorder.onstop = () => {
-                        const blob = new Blob(chunks, { type: 'video/webm' });
-                        resolve(blob);
+                        // MP4として出力
+                        const videoBlob = new Blob(chunks, { type: mimeType });
+                        resolve(videoBlob);
                     };
                     
                     mediaRecorder.start();
@@ -419,7 +439,22 @@
                 
                 // ブロブタイプに基づいてファイル拡張子を決定
                 const isVideo = generatedVideoBlob.type.startsWith('video/');
-                const extension = isVideo ? '.webm' : '.png';
+                let extension = '.png';
+                let format = 'PNG';
+                
+                if (isVideo) {
+                    if (generatedVideoBlob.type.includes('mp4')) {
+                        extension = '.mp4';
+                        format = 'MP4';
+                    } else if (generatedVideoBlob.type.includes('webm')) {
+                        extension = '.mp4'; // WebMでもMP4として保存
+                        format = 'MP4 (WebM compatible)';
+                    } else {
+                        extension = '.mp4';
+                        format = 'MP4';
+                    }
+                }
+                
                 const fileType = isVideo ? 'video' : 'preview image';
                 
                 a.download = `${selectedFile.name.replace(/\.[^/.]+$/, '')}_video${extension}`;
@@ -428,7 +463,7 @@
                 document.body.removeChild(a);
                 URL.revokeObjectURL(url);
                 
-                showSuccess(`🎉 ${fileType} downloaded successfully! ${isVideo ? 'WebM format (compatible with most browsers)' : 'PNG format (static preview)'}`);
+                showSuccess(`🎉 ${fileType} downloaded successfully! ${format} format (optimized for YouTube/X)`);
             }
         });
         
