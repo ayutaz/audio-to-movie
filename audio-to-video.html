@@ -300,12 +300,16 @@
                     audioElement = new Audio();
                     audioElement.src = URL.createObjectURL(audioFile);
                     audioElement.loop = false;
-                    audioElement.volume = 1.0;
+                    audioElement.volume = 0; // 最初は無音に設定
+                    audioElement.muted = true; // ミュート状態で開始
+                    audioElement.preload = 'auto';
+                    audioElement.autoplay = false; // 自動再生を明示的に無効化
                     
                     // 音声の読み込みを待つ
                     await new Promise((resolve, reject) => {
                         audioElement.addEventListener('loadeddata', resolve);
                         audioElement.addEventListener('error', reject);
+                        // 音声を再生せずにメタデータのみ読み込み
                         audioElement.load();
                     });
                     
@@ -333,10 +337,17 @@
                         try {
                             const source = audioContext.createMediaElementSource(audioElement);
                             const destination = audioContext.createMediaStreamDestination();
-                            source.connect(destination);
-                            source.connect(audioContext.destination); // スピーカーにも出力
+                            const gainNode = audioContext.createGain();
+                            
+                            // 音声の流れ: source -> gainNode -> destination (ストリーム用)
+                            source.connect(gainNode);
+                            gainNode.connect(destination);
+                            
+                            // スピーカー出力は接続しない（ユーザーには聞こえない）
+                            // source.connect(audioContext.destination); <- これを削除
+                            
                             audioStream = destination.stream;
-                            console.log('Fallback audio stream created via Web Audio API:', audioStream.getAudioTracks().length, 'tracks');
+                            console.log('Fallback audio stream created via Web Audio API (silent to user):', audioStream.getAudioTracks().length, 'tracks');
                         } catch (fallbackError) {
                             console.warn('Fallback audio stream creation failed:', fallbackError);
                         }
@@ -475,12 +486,17 @@
                     
                     mediaRecorder.start();
                     
-                    // 音声再生を開始（音声がある場合）
+                    // 音声再生を開始（録画用、ユーザーには聞こえないように）
                     if (audioElement) {
                         try {
+                            // 録画中のみ音声を有効化（ストリーム用）
                             audioElement.currentTime = 0;
+                            audioElement.muted = false; // ストリーム録画のためにミュート解除
+                            audioElement.volume = 1.0; // ストリーム録画のために音量設定
+                            
+                            // 音声を再生（ストリームキャプチャのため）
                             await audioElement.play();
-                            console.log('Audio playback started');
+                            console.log('Audio playback started for recording (stream capture only)');
                         } catch (playError) {
                             console.warn('Audio playback failed:', playError);
                         }
@@ -500,10 +516,13 @@
                         await new Promise(resolve => setTimeout(resolve, 1000 / fps));
                     }
                     
-                    // 音声を停止
+                    // 音声を停止し、ミュート状態に戻す
                     if (audioElement) {
                         audioElement.pause();
                         audioElement.currentTime = 0;
+                        audioElement.muted = true; // 再度ミュート
+                        audioElement.volume = 0; // 音量を0に
+                        console.log('Audio playback stopped and muted');
                     }
                     
                     mediaRecorder.stop();
