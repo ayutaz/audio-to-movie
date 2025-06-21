@@ -157,12 +157,25 @@
         
         <div id="preview" class="preview">
             <h3>📹 Generated Video Preview</h3>
-            <canvas id="waveform" class="waveform"></canvas>
-            <p><strong>Video Details:</strong> 1920x1080, MP4 format, 5 seconds, 30fps</p>
-            <p>✅ Optimized for YouTube/X upload</p>
-            <button id="downloadBtn" class="convert-btn" style="background-color: #28a745;">
-                📥 Download MP4 Video
-            </button>
+            <div style="display: flex; gap: 1rem; justify-content: center; align-items: flex-start; flex-wrap: wrap;">
+                <div style="flex: 1; min-width: 300px;">
+                    <h4>🎬 Video Player</h4>
+                    <video id="videoPreview" controls style="width: 100%; max-width: 400px; height: auto; border: 1px solid #ddd; border-radius: 4px; background: #000;">
+                        Your browser does not support the video tag.
+                    </video>
+                </div>
+                <div style="flex: 1; min-width: 300px;">
+                    <h4>📊 Static Preview</h4>
+                    <canvas id="waveform" class="waveform" style="max-width: 400px;"></canvas>
+                </div>
+            </div>
+            <div style="margin-top: 1rem;">
+                <p><strong>Video Details:</strong> 1920x1080, MP4 format, 5 seconds, 30fps</p>
+                <p>✅ Optimized for YouTube/X upload</p>
+                <button id="downloadBtn" class="convert-btn" style="background-color: #28a745;">
+                    📥 Download MP4 Video
+                </button>
+            </div>
         </div>
         
         <div class="formats">
@@ -177,6 +190,7 @@
         let selectedFile = null;
         let isProcessing = false;
         let generatedVideoBlob = null;
+        let videoPreviewUrl = null;
         
         const supportedFormats = ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'opus', 'flac', 'wma', 'aiff', 'au', '3gp', 'amr', 'mp2', 'ac3'];
         
@@ -192,6 +206,7 @@
         const preview = document.getElementById('preview');
         const waveformCanvas = document.getElementById('waveform');
         const downloadBtn = document.getElementById('downloadBtn');
+        const videoPreview = document.getElementById('videoPreview');
         
         function updateUI() {
             debug.textContent = `Debug: File selected: ${selectedFile ? 'Yes' : 'No'}, Processing: ${isProcessing ? 'Yes' : 'No'}`;
@@ -229,6 +244,13 @@
             hideMessages();
             preview.style.display = 'none';
             selectedFile = null;
+            
+            // 既存の動画プレビューをクリア
+            if (videoPreviewUrl) {
+                URL.revokeObjectURL(videoPreviewUrl);
+                videoPreviewUrl = null;
+            }
+            videoPreview.src = '';
             
             if (file) {
                 const fileExtension = file.name.split('.').pop()?.toLowerCase();
@@ -418,6 +440,13 @@
                 // 動画生成
                 generatedVideoBlob = await generateVideo(selectedFile);
                 
+                // 動画プレビューを設定
+                if (videoPreviewUrl) {
+                    URL.revokeObjectURL(videoPreviewUrl);
+                }
+                videoPreviewUrl = URL.createObjectURL(generatedVideoBlob);
+                videoPreview.src = videoPreviewUrl;
+                
                 showSuccess(`✅ Video generated successfully! File: ${selectedFile.name}`);
                 preview.style.display = 'block';
                 
@@ -428,6 +457,13 @@
                 isProcessing = false;
                 progress.style.display = 'none';
                 updateUI();
+            }
+        });
+        
+        // ページ離脱時にURLをクリーンアップ
+        window.addEventListener('beforeunload', function() {
+            if (videoPreviewUrl) {
+                URL.revokeObjectURL(videoPreviewUrl);
             }
         });
         
