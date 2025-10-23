@@ -129,11 +129,12 @@
         <div class="upload-area">
             <form id="uploadForm">
                 <div>
-                    <input 
-                        type="file" 
+                    <input
+                        type="file"
                         id="audioFile"
                         accept=".mp3,.wav,.m4a,.aac,.ogg,.opus,.flac,.wma,.aiff,.au,.3gp,.amr,.mp2,.ac3"
                         class="file-input"
+                        multiple
                     />
                 </div>
                 
@@ -189,11 +190,11 @@
     </div>
 
     <script>
-        let selectedFile = null;
+        let selectedFiles = [];
         let isProcessing = false;
         let generatedVideoBlob = null;
         let videoPreviewUrl = null;
-        
+
         const supportedFormats = ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'opus', 'flac', 'wma', 'aiff', 'au', '3gp', 'amr', 'mp2', 'ac3'];
         
         const fileInput = document.getElementById('audioFile');
@@ -211,10 +212,11 @@
         const videoPreview = document.getElementById('videoPreview');
         
         function updateUI() {
-            debug.textContent = `Debug: File selected: ${selectedFile ? 'Yes' : 'No'}, Processing: ${isProcessing ? 'Yes' : 'No'}`;
-            convertBtn.disabled = !selectedFile || isProcessing;
-            convertBtn.innerHTML = isProcessing ? '⏳ Processing...' : '🎬 Convert to Video';
-            convertBtn.style.backgroundColor = selectedFile && !isProcessing ? '#007bff' : '#ccc';
+            const fileCount = selectedFiles.length;
+            debug.textContent = `Debug: Files selected: ${fileCount}, Processing: ${isProcessing ? 'Yes' : 'No'}`;
+            convertBtn.disabled = fileCount === 0 || isProcessing;
+            convertBtn.innerHTML = isProcessing ? '⏳ Processing...' : `🎬 Convert to Video (${fileCount} file${fileCount !== 1 ? 's' : ''})`;
+            convertBtn.style.backgroundColor = fileCount > 0 && !isProcessing ? '#007bff' : '#ccc';
         }
         
         function hideMessages() {
@@ -239,113 +241,205 @@
         }
         
         fileInput.addEventListener('change', function(event) {
-            const file = event.target.files[0];
-            console.log('File selected:', file);
-            
+            const files = Array.from(event.target.files);
+            console.log('Files selected:', files.length);
+
             fileInfo.style.display = 'none';
             hideMessages();
             preview.style.display = 'none';
-            selectedFile = null;
-            
+            selectedFiles = [];
+
             // 既存の動画プレビューをクリア
             if (videoPreviewUrl) {
                 URL.revokeObjectURL(videoPreviewUrl);
                 videoPreviewUrl = null;
             }
             videoPreview.src = '';
-            
-            if (file) {
-                const fileExtension = file.name.split('.').pop()?.toLowerCase();
-                
-                if (!fileExtension || !supportedFormats.includes(fileExtension)) {
-                    showError(`❌ Unsupported file format. Supported: ${supportedFormats.join(', ')}`);
-                    updateUI();
-                    return;
-                }
-                
-                if (file.size > 50 * 1024 * 1024) {
-                    showError('❌ File size too large. Maximum size is 50MB.');
-                    updateUI();
-                    return;
-                }
-                
-                selectedFile = file;
-                fileInfo.innerHTML = `
-                    <strong>📄 Selected File:</strong><br>
-                    Name: ${file.name}<br>
-                    Size: ${(file.size / 1024 / 1024).toFixed(2)} MB<br>
-                    Type: ${fileExtension.toUpperCase()}
-                `;
-                fileInfo.style.display = 'block';
-                console.log('File validated:', file.name);
+
+            if (files.length === 0) {
+                updateUI();
+                return;
             }
-            
+
+            // 各ファイルのバリデーション
+            let totalSize = 0;
+            const validFiles = [];
+            const errors = [];
+
+            for (const file of files) {
+                const fileExtension = file.name.split('.').pop()?.toLowerCase();
+
+                if (!fileExtension || !supportedFormats.includes(fileExtension)) {
+                    errors.push(`${file.name}: Unsupported format`);
+                    continue;
+                }
+
+                if (file.size > 50 * 1024 * 1024) {
+                    errors.push(`${file.name}: File too large (max 50MB)`);
+                    continue;
+                }
+
+                totalSize += file.size;
+                validFiles.push(file);
+            }
+
+            // 合計サイズチェック（最大100MB）
+            if (totalSize > 100 * 1024 * 1024) {
+                showError('❌ Total file size too large. Maximum total size is 100MB.');
+                updateUI();
+                return;
+            }
+
+            if (errors.length > 0) {
+                showError(`❌ Some files were skipped:\n${errors.join('\n')}`);
+            }
+
+            if (validFiles.length === 0) {
+                showError('❌ No valid files selected.');
+                updateUI();
+                return;
+            }
+
+            selectedFiles = validFiles;
+
+            // ファイルリストを表示
+            let fileListHTML = `<strong>📄 Selected Files (${validFiles.length}):</strong><br>`;
+            validFiles.forEach((file, index) => {
+                const fileExtension = file.name.split('.').pop()?.toUpperCase();
+                fileListHTML += `${index + 1}. ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB, ${fileExtension})<br>`;
+            });
+            fileListHTML += `<strong>Total Size:</strong> ${(totalSize / 1024 / 1024).toFixed(2)} MB`;
+
+            fileInfo.innerHTML = fileListHTML;
+            fileInfo.style.display = 'block';
+            console.log('Files validated:', validFiles.length);
+
             updateUI();
         });
-        
-        async function generateVideo(audioFile) {
+
+        // 複数の AudioBuffer を1つに結合する関数
+        function combineAudioBuffers(audioContext, audioBuffers) {
+            if (audioBuffers.length === 0) {
+                return null;
+            }
+
+            if (audioBuffers.length === 1) {
+                return audioBuffers[0];
+            }
+
+            // サンプルレートは最初のバッファのものを使用
+            const sampleRate = audioBuffers[0].sampleRate;
+
+            // 最大チャンネル数を取得
+            const numberOfChannels = Math.max(...audioBuffers.map(buffer => buffer.numberOfChannels));
+
+            // 合計の長さを計算
+            let totalLength = 0;
+            for (const buffer of audioBuffers) {
+                totalLength += buffer.length;
+            }
+
+            // 新しい AudioBuffer を作成
+            const combinedBuffer = audioContext.createBuffer(
+                numberOfChannels,
+                totalLength,
+                sampleRate
+            );
+
+            // 各チャンネルのデータをコピー
+            let offset = 0;
+            for (const buffer of audioBuffers) {
+                for (let channel = 0; channel < numberOfChannels; channel++) {
+                    const outputData = combinedBuffer.getChannelData(channel);
+
+                    if (channel < buffer.numberOfChannels) {
+                        // バッファにチャンネルが存在する場合
+                        const inputData = buffer.getChannelData(channel);
+                        outputData.set(inputData, offset);
+                    } else {
+                        // バッファにチャンネルが存在しない場合は無音で埋める
+                        for (let i = 0; i < buffer.length; i++) {
+                            outputData[offset + i] = 0;
+                        }
+                    }
+                }
+                offset += buffer.length;
+            }
+
+            console.log(`Combined ${audioBuffers.length} audio buffers into one (${(totalLength / sampleRate).toFixed(2)}s)`);
+            return combinedBuffer;
+        }
+
+        // 複数の音声ファイルを処理して結合されたAudioBufferを作成
+        async function processAudioFiles(files) {
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+            // ユーザーインタラクションでAudioContextを再開
+            if (audioContext.state === 'suspended') {
+                await audioContext.resume();
+            }
+
+            const audioBuffers = [];
+
+            // 各ファイルをデコード
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                console.log(`Processing file ${i + 1}/${files.length}: ${file.name}`);
+
+                try {
+                    const arrayBuffer = await file.arrayBuffer();
+                    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                    audioBuffers.push(audioBuffer);
+                    console.log(`Decoded: ${file.name} (${audioBuffer.duration.toFixed(2)}s)`);
+                } catch (error) {
+                    console.error(`Failed to decode ${file.name}:`, error);
+                    throw new Error(`Failed to decode ${file.name}: ${error.message}`);
+                }
+            }
+
+            // AudioBuffer を結合
+            const combinedBuffer = combineAudioBuffers(audioContext, audioBuffers);
+
+            return { audioContext, audioBuffer: combinedBuffer, fileNames: files.map(f => f.name) };
+        }
+
+        async function generateVideo(audioContext, audioBuffer, fileNames) {
             return new Promise(async (resolve) => {
                 const canvas = document.createElement('canvas');
                 canvas.width = 1920;
                 canvas.height = 1080;
                 const ctx = canvas.getContext('2d');
-                
-                // 音声処理の準備（完全サイレント方式）
-                let audioBuffer = null;
-                let audioContext = null;
-                let audioStream = null;
-                let audioDuration = 5; // デフォルト5秒
-                
-                try {
-                    // Web Audio APIで音声を処理（再生なし）
-                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                    
-                    // ユーザーインタラクションでAudioContextを再開
-                    if (audioContext.state === 'suspended') {
-                        await audioContext.resume();
-                    }
-                    
-                    // 音声ファイルをArrayBufferとして読み込み
-                    const arrayBuffer = await audioFile.arrayBuffer();
-                    audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-                    audioDuration = audioBuffer.duration;
-                    
-                    console.log('Audio decoded (silent):', audioDuration, 'seconds');
-                    
-                    // 動画録画用の音声ストリームを作成（MediaRecorder用）
-                    const destination = audioContext.createMediaStreamDestination();
-                    audioStream = destination.stream;
-                    console.log('Audio stream created for recording:', audioStream.getAudioTracks().length, 'tracks');
-                    
-                } catch (error) {
-                    console.warn('Audio processing failed:', error);
-                    audioDuration = 5; // フォールバック
-                }
-                
+
+                const audioDuration = audioBuffer ? audioBuffer.duration : 5;
+
+                console.log('Generating video with audio duration:', audioDuration, 'seconds');
+
                 // 基本フレームを描画
                 function drawFrame(frameNumber = 0) {
                     // 背景
                     ctx.fillStyle = '#1a1a1a';
                     ctx.fillRect(0, 0, 1920, 1080);
-                    
+
                     // タイトル
                     ctx.fillStyle = '#ffffff';
                     ctx.font = '48px Arial';
                     ctx.textAlign = 'center';
                     ctx.fillText('🎵 Audio Visualization', 960, 350);
-                    
-                    // ファイル名
-                    ctx.font = '32px Arial';
+
+                    // ファイル名（複数の場合は結合表示）
+                    ctx.font = '28px Arial';
                     ctx.fillStyle = '#888888';
-                    const fileName = audioFile.name.replace(/\.[^/.]+$/, '');
-                    ctx.fillText(fileName, 960, 420);
-                    
+                    if (fileNames.length === 1) {
+                        const fileName = fileNames[0].replace(/\.[^/.]+$/, '');
+                        ctx.fillText(fileName, 960, 420);
+                    } else {
+                        ctx.fillText(`Combined Audio (${fileNames.length} files)`, 960, 420);
+                    }
+
                     // ファイル情報
                     ctx.font = '24px Arial';
                     ctx.fillStyle = '#666666';
-                    const fileSize = (audioFile.size / 1024 / 1024).toFixed(2);
-                    const fileExt = audioFile.name.split('.').pop().toUpperCase();
-                    ctx.fillText(`Format: ${fileExt} | Size: ${fileSize} MB`, 960, 460);
+                    ctx.fillText(`Duration: ${audioDuration.toFixed(2)}s | Files: ${fileNames.length}`, 960, 460);
                     
                     // アニメーション波形
                     const waveformHeight = 200;
@@ -466,14 +560,15 @@
                     };
                     
                     mediaRecorder.start();
-                    
-                    // 音声の長さか5秒の短い方を使用
+
+                    // 音声の長さに応じた動画の長さを決定
                     const fps = 30;
-                    const maxDuration = 5; // 最大5秒
-                    const duration = Math.max(Math.min(audioDuration, maxDuration), 3); // 最低3秒
+                    const maxDuration = 30; // 最大30秒
+                    const minDuration = 3; // 最小3秒
+                    const duration = Math.max(Math.min(audioDuration, maxDuration), minDuration);
                     const totalFrames = Math.floor(fps * duration);
-                    
-                    console.log(`Recording ${duration}s video with ${totalFrames} frames (completely silent)`);
+
+                    console.log(`Recording ${duration}s video with ${totalFrames} frames (audio: ${audioDuration.toFixed(2)}s)`);
                     
                     for (let frame = 0; frame < totalFrames; frame++) {
                         drawFrame(frame);
@@ -501,43 +596,52 @@
         
         form.addEventListener('submit', async function(event) {
             event.preventDefault();
-            
-            if (!selectedFile) return;
-            
+
+            if (selectedFiles.length === 0) return;
+
             isProcessing = true;
             progress.style.display = 'block';
             hideMessages();
             updateUI();
-            
+
             try {
-                console.log('Processing file:', selectedFile.name);
-                
-                // ブラウザの自動再生ポリシーに対応するため、ユーザーインタラクションを記録
-                const userInteracted = true;
-                console.log('User interaction detected, audio playback will be allowed');
-                
-                // 進行状況シミュレーション
-                for (let i = 0; i <= 100; i += 10) {
-                    updateProgress(i);
-                    await new Promise(resolve => setTimeout(resolve, 200));
-                }
-                
+                console.log('Processing files:', selectedFiles.length);
+
+                // 進行状況: 音声ファイル処理
+                updateProgress(10);
+                showSuccess(`⏳ Processing ${selectedFiles.length} audio file(s)...`);
+
+                // 音声ファイルを処理して結合
+                const { audioContext, audioBuffer, fileNames } = await processAudioFiles(selectedFiles);
+
+                updateProgress(40);
+                showSuccess(`⏳ Audio files combined. Duration: ${audioBuffer.duration.toFixed(2)}s. Generating video...`);
+
                 // 動画生成
-                generatedVideoBlob = await generateVideo(selectedFile);
-                
+                updateProgress(50);
+                generatedVideoBlob = await generateVideo(audioContext, audioBuffer, fileNames);
+
+                updateProgress(100);
+
                 // 動画プレビューを設定
                 if (videoPreviewUrl) {
                     URL.revokeObjectURL(videoPreviewUrl);
                 }
                 videoPreviewUrl = URL.createObjectURL(generatedVideoBlob);
                 videoPreview.src = videoPreviewUrl;
-                
-                showSuccess(`✅ Video generated successfully! File: ${selectedFile.name}`);
+
+                const fileList = fileNames.length === 1 ? fileNames[0] : `${fileNames.length} files`;
+                showSuccess(`✅ Video generated successfully! Combined: ${fileList}`);
                 preview.style.display = 'block';
-                
+
+                // AudioContext をクリーンアップ
+                if (audioContext && audioContext.state !== 'closed') {
+                    audioContext.close();
+                }
+
             } catch (error) {
-                console.error('Error processing file:', error);
-                showError('❌ Error occurred during video generation. Please try again.');
+                console.error('Error processing files:', error);
+                showError(`❌ Error occurred during video generation: ${error.message}`);
             } finally {
                 isProcessing = false;
                 progress.style.display = 'none';
@@ -553,16 +657,16 @@
         });
         
         downloadBtn.addEventListener('click', function() {
-            if (generatedVideoBlob && selectedFile) {
+            if (generatedVideoBlob && selectedFiles.length > 0) {
                 const url = URL.createObjectURL(generatedVideoBlob);
                 const a = document.createElement('a');
                 a.href = url;
-                
+
                 // ブロブタイプに基づいてファイル拡張子を決定
                 const isVideo = generatedVideoBlob.type.startsWith('video/');
                 let extension = '.png';
                 let format = 'PNG';
-                
+
                 if (isVideo) {
                     if (generatedVideoBlob.type.includes('mp4')) {
                         extension = '.mp4';
@@ -575,15 +679,23 @@
                         format = 'MP4';
                     }
                 }
-                
+
                 const fileType = isVideo ? 'video' : 'preview image';
-                
-                a.download = `${selectedFile.name.replace(/\.[^/.]+$/, '')}_video${extension}`;
+
+                // ファイル名を決定
+                let fileName;
+                if (selectedFiles.length === 1) {
+                    fileName = `${selectedFiles[0].name.replace(/\.[^/.]+$/, '')}_video${extension}`;
+                } else {
+                    fileName = `combined_audio_${selectedFiles.length}files_video${extension}`;
+                }
+
+                a.download = fileName;
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
                 URL.revokeObjectURL(url);
-                
+
                 showSuccess(`🎉 ${fileType} downloaded successfully! ${format} format with audio track (optimized for YouTube/X)`);
             }
         });
