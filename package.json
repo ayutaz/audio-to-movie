@@ -16,7 +16,7 @@
   "dependencies": {
     "@remix-run/cloudflare": "^2.4.1",
     "@remix-run/cloudflare-pages": "^2.4.1",
-    "@remix-run/react": "^2.4.1",
+    "@remix-run/react": "^2.17.3",
     "express": "^4.21.2",
     "hono": "^3.12.0",
     "isbot": "^4.1.0",
